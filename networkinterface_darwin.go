@@ -9,9 +9,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"syscall"
-	"time"
-	"unsafe"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
@@ -29,8 +26,8 @@ type NetworkInterface struct {
 	PassiveCh chan *Passive
 }
 
-// NewNetworkInterface creates a new NetworkInterface for the specified interface on macOS
-func NewNetworkInterface(nwInterface string) (*NetworkInterface, error) {
+// newNetworkInterfacePlatform creates a new NetworkInterface for the specified interface on macOS
+func newNetworkInterfacePlatform(nwInterface string) (*NetworkInterface, error) {
 	intf, err := getInterface(nwInterface)
 	if err != nil {
 		return nil, err
@@ -99,18 +96,16 @@ func getInterface(nwInterface string) (*net.Interface, error) {
 	return nil, fmt.Errorf("interface %s not found", nwInterface)
 }
 
-// SendEthernetFrame sends an Ethernet frame on macOS
-func (nwif *NetworkInterface) SendEthernetFrame(ctx context.Context, data []byte) error {
-	// Convert raw bytes to a gopacket packet to inject
-	packet := gopacket.NewPacket(data, layers.LayerTypeEthernet, gopacket.Default)
+// sendEthernetFramePlatform sends an Ethernet frame on macOS
+func (nwif *NetworkInterface) sendEthernetFramePlatform(ctx context.Context, data []byte) error {
 	if err := nwif.Handle.WritePacketData(data); err != nil {
 		return fmt.Errorf("failed to write packet data: %v", err)
 	}
 	return nil
 }
 
-// ReceiveEthernetFrame receives Ethernet frames on macOS
-func (nwif *NetworkInterface) ReceiveEthernetFrame(ctx context.Context) {
+// receiveEthernetFramePlatform receives Ethernet frames on macOS
+func (nwif *NetworkInterface) receiveEthernetFramePlatform(ctx context.Context) {
 	packetSource := gopacket.NewPacketSource(nwif.Handle, layers.LayerTypeEthernet)
 	packetChan := packetSource.Packets()
 
@@ -153,16 +148,16 @@ func (nwif *NetworkInterface) ReceiveEthernetFrame(ctx context.Context) {
 	}
 }
 
-// GetNetworkInfo returns information about the network interface
-func (nwif *NetworkInterface) GetNetworkInfo() (macAddr net.HardwareAddr, ipv4Addr net.IP, ipv6Addr net.IP) {
+// getNetworkInfoPlatform returns information about the network interface
+func (nwif *NetworkInterface) getNetworkInfoPlatform() (macAddr net.HardwareAddr, ipv4Addr net.IP, ipv6Addr net.IP) {
 	ipv4 := make(net.IP, 4)
 	binary.BigEndian.PutUint32(ipv4, nwif.IPAddr)
 	
 	return nwif.MacAddr, ipv4, nwif.IPv6Addr
 }
 
-// Close cleans up resources
-func (nwif *NetworkInterface) Close() {
+// closePlatform cleans up resources
+func (nwif *NetworkInterface) closePlatform() {
 	if nwif.Handle != nil {
 		nwif.Handle.Close()
 	}

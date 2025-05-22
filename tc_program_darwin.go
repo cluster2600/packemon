@@ -4,6 +4,7 @@ package packemon
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -12,11 +13,12 @@ import (
 type TCProgramManager struct {
 	interfaceName string
 	filterRules   []string
+	tempFile      string
 	isActive      bool
 }
 
-// NewTCProgramManager creates a new TCP program manager for macOS
-func NewTCProgramManager(interfaceName string) (*TCProgramManager, error) {
+// newTCProgramManagerPlatform creates a new TCP program manager for macOS
+func newTCProgramManagerPlatform(interfaceName string) (TCProgramManagerInterface, error) {
 	return &TCProgramManager{
 		interfaceName: interfaceName,
 		filterRules:   make([]string, 0),
@@ -47,10 +49,12 @@ func (t *TCProgramManager) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to create temporary pf rules file: %v", err)
 	}
+	t.tempFile = tempFile
 
 	// Load the rules
 	cmd := exec.Command("sudo", "pfctl", "-f", tempFile, "-e")
 	if err := cmd.Run(); err != nil {
+		os.Remove(tempFile)
 		return fmt.Errorf("failed to load packet filter rules: %v", err)
 	}
 
@@ -70,6 +74,11 @@ func (t *TCProgramManager) Stop() error {
 		return fmt.Errorf("failed to disable packet filter: %v", err)
 	}
 
+	// Clean up temporary file
+	if t.tempFile != "" {
+		os.Remove(t.tempFile)
+	}
+
 	t.isActive = false
 	t.filterRules = make([]string, 0)
 	return nil
@@ -77,20 +86,24 @@ func (t *TCProgramManager) Stop() error {
 
 // createTempFile creates a temporary file with the given content
 func createTempFile(prefix, suffix, content string) (string, error) {
-	// Use the mktemp command to create a temporary file
-	cmd := exec.Command("mktemp", "-t", prefix, suffix)
-	output, err := cmd.Output()
+	// Create a temporary file
+	tmpFile, err := os.CreateTemp("", prefix+"*"+suffix)
 	if err != nil {
 		return "", err
 	}
-
-	tempFile := strings.TrimSpace(string(output))
-
+	
 	// Write content to the file
-	writeCmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' > %s", content, tempFile))
-	if err := writeCmd.Run(); err != nil {
+	if _, err := tmpFile.WriteString(content); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
 		return "", err
 	}
-
-	return tempFile, nil
+	
+	// Close the file
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", err
+	}
+	
+	return tmpFile.Name(), nil
 }

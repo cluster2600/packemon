@@ -18,12 +18,13 @@ type NetworkInterface struct {
 	Socket     int // file descriptor
 	SocketAddr unix.SockaddrLinklayer
 	IPAddr     uint32
+	IPv6Addr   net.IP // For IPv6 support
 
 	PassiveCh chan *Passive
 }
 
-// NewNetworkInterface creates a new NetworkInterface for the specified interface on Linux
-func NewNetworkInterface(nwInterface string) (*NetworkInterface, error) {
+// newNetworkInterfacePlatform creates a new NetworkInterface for the specified interface on Linux
+func newNetworkInterfacePlatform(nwInterface string) (*NetworkInterface, error) {
 	intf, err := getInterface(nwInterface)
 	if err != nil {
 		return nil, err
@@ -34,7 +35,9 @@ func NewNetworkInterface(nwInterface string) (*NetworkInterface, error) {
 	}
 
 	var ipAddr uint32
-	for i, addr := range ipAddrs {
+	var ipv6Addr net.IP
+	
+	for _, addr := range ipAddrs {
 		var ip net.IP
 		switch v := addr.(type) {
 		case *net.IPNet:
@@ -45,12 +48,11 @@ func NewNetworkInterface(nwInterface string) (*NetworkInterface, error) {
 		if ip == nil || ip.IsLoopback() {
 			continue
 		}
-		ip = ip.To4()
-		if ip == nil {
-			continue
-		}
-		if i == 0 {
-			ipAddr = binary.BigEndian.Uint32(ip)
+		
+		if ip4 := ip.To4(); ip4 != nil {
+			ipAddr = binary.BigEndian.Uint32(ip4)
+		} else if ip.To16() != nil && ipv6Addr == nil {
+			ipv6Addr = ip
 		}
 	}
 
@@ -76,6 +78,7 @@ func NewNetworkInterface(nwInterface string) (*NetworkInterface, error) {
 		Socket:     sock,
 		SocketAddr: addr,
 		IPAddr:     ipAddr,
+		IPv6Addr:   ipv6Addr,
 		PassiveCh:  make(chan *Passive, 100),
 	}
 
@@ -98,13 +101,13 @@ func getInterface(nwInterface string) (*net.Interface, error) {
 	return nil, errors.New("interface not found: " + nwInterface)
 }
 
-// SendEthernetFrame sends an Ethernet frame on Linux
-func (nwif *NetworkInterface) SendEthernetFrame(ctx context.Context, data []byte) error {
+// sendEthernetFramePlatform sends an Ethernet frame on Linux
+func (nwif *NetworkInterface) sendEthernetFramePlatform(ctx context.Context, data []byte) error {
 	return unix.Sendto(nwif.Socket, data, 0, &nwif.SocketAddr)
 }
 
-// ReceiveEthernetFrame receives Ethernet frames on Linux
-func (nwif *NetworkInterface) ReceiveEthernetFrame(ctx context.Context) {
+// receiveEthernetFramePlatform receives Ethernet frames on Linux
+func (nwif *NetworkInterface) receiveEthernetFramePlatform(ctx context.Context) {
 	buf := make([]byte, 1500)
 
 	for {
@@ -143,22 +146,17 @@ func (nwif *NetworkInterface) ReceiveEthernetFrame(ctx context.Context) {
 	}
 }
 
-// GetNetworkInfo returns information about the network interface
-func (nwif *NetworkInterface) GetNetworkInfo() (macAddr net.HardwareAddr, ipv4Addr net.IP, ipv6Addr net.IP) {
+// getNetworkInfoPlatform returns information about the network interface
+func (nwif *NetworkInterface) getNetworkInfoPlatform() (macAddr net.HardwareAddr, ipv4Addr net.IP, ipv6Addr net.IP) {
 	ipv4 := make(net.IP, 4)
 	binary.BigEndian.PutUint32(ipv4, nwif.IPAddr)
 	
-	return nwif.Intf.HardwareAddr, ipv4, nil
+	return nwif.Intf.HardwareAddr, ipv4, nwif.IPv6Addr
 }
 
-// Close closes the socket
-func (nwif *NetworkInterface) Close() {
+// closePlatform closes the socket
+func (nwif *NetworkInterface) closePlatform() {
 	if nwif.Socket != 0 {
 		unix.Close(nwif.Socket)
 	}
-}
-
-// htons converts a short (uint16) from host byte order to network byte order.
-func htons(i uint16) uint16 {
-	return (i<<8)&0xff00 | i>>8
 }
