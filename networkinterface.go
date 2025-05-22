@@ -237,10 +237,11 @@ func ParsedPacket(recieved []byte) (passive *Passive) {
 
 		switch ipv6.NextHeader {
 		case IPv6_NEXT_HEADER_ICMPv6:
-			// TODO:
+			icmpv6 := ParsedICMPv6(ipv6.Data)
 			return &Passive{
 				EthernetFrame: ethernetFrame,
 				IPv6:          ipv6,
+				ICMPv6:        icmpv6,
 			}
 		case IPv6_NEXT_HEADER_UDP:
 			udp := ParsedUDP(ipv6.Data)

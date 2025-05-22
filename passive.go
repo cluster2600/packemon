@@ -14,6 +14,7 @@ type Passive struct {
 	TCP                                             *TCP
 	UDP                                             *UDP
 	ICMP                                            *ICMP
+	ICMPv6                                          *ICMPv6
 	IPv4                                            *IPv4
 	IPv6                                            *IPv6
 	ARP                                             *ARP
@@ -36,6 +37,9 @@ func (p *Passive) HighLayerProto() string {
 	}
 	if p.ICMP != nil {
 		proto = "ICMP"
+	}
+	if p.ICMPv6 != nil {
+		proto = "ICMPv6"
 	}
 	if p.UDP != nil {
 		proto = "UDP"

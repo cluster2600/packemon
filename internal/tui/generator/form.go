@@ -45,6 +45,10 @@ var (
 	DEFAULT_ICMP_CODE       = "0x00"
 	DEFAULT_ICMP_IDENTIFIER = "0x34a1"
 	DEFAULT_ICMP_SEQUENCE   = "0x0001"
+	
+	DEFAULT_ICMPv6_CODE       = "0x00"
+	DEFAULT_ICMPv6_IDENTIFIER = "0x1234"
+	DEFAULT_ICMPv6_SEQUENCE   = "0x0001"
 
 	DEFAULT_UDP_PORT_SOURCE      = "47000"
 	DEFAULT_UDP_PORT_DESTINATION = "53"
@@ -262,15 +266,17 @@ func (g *generator) form(ctx context.Context, sendFn func(*packemon.EthernetFram
 }
 
 type packets struct {
-	ethernet *packemon.EthernetHeader
-	arp      *packemon.ARP
-	ipv4     *packemon.IPv4
-	ipv6     *packemon.IPv6
-	icmpv4   *packemon.ICMP
-	tcp      *packemon.TCP
-	udp      *packemon.UDP
-	dns      *packemon.DNS
-	http     *packemon.HTTP
+	ethernet   *packemon.EthernetHeader
+	arp        *packemon.ARP
+	ipv4       *packemon.IPv4
+	ipv6       *packemon.IPv6
+	icmpv4     *packemon.ICMP
+	icmpv6     *packemon.ICMPv6
+	icmpv6Echo *packemon.ICMPv6Echo
+	tcp        *packemon.TCP
+	udp        *packemon.UDP
+	dns        *packemon.DNS
+	http       *packemon.HTTP
 }
 
 func defaultPackets() (*packets, error) {
@@ -400,6 +406,47 @@ func defaultPackets() (*packets, error) {
 		Identifier: binary.BigEndian.Uint16(icmpIdentifier),
 		Sequence:   binary.BigEndian.Uint16(icmpSequence),
 	}
+	
+	// Default ICMPv6 configuration
+	icmpv6Code, err := strHexToUint8(DEFAULT_ICMPv6_CODE)
+	if err != nil {
+		return nil, err
+	}
+	icmpv6Identifier, err := packemon.StrHexToBytes2(DEFAULT_ICMPv6_IDENTIFIER)
+	if err != nil {
+		return nil, err
+	}
+	icmpv6Sequence, err := packemon.StrHexToBytes2(DEFAULT_ICMPv6_SEQUENCE)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Create timestamp data similar to ping
+	timestamp := func() []byte {
+		now := time.Now().Unix()
+		b := make([]byte, 4)
+		binary.LittleEndian.PutUint32(b, uint32(now))
+		return binary.LittleEndian.AppendUint32(b, 0x00000000)
+	}()
+	
+	icmpv6Echo := &packemon.ICMPv6Echo{
+		Identifier:    binary.BigEndian.Uint16(icmpv6Identifier),
+		SequenceNumber: binary.BigEndian.Uint16(icmpv6Sequence),
+		Data:          timestamp,
+	}
+	
+	// Create echo message body
+	echoBuf := &bytes.Buffer{}
+	packemon.WriteUint16(echoBuf, icmpv6Echo.Identifier)
+	packemon.WriteUint16(echoBuf, icmpv6Echo.SequenceNumber)
+	echoBuf.Write(icmpv6Echo.Data)
+	
+	icmpv6 := &packemon.ICMPv6{
+		Type:      packemon.ICMPv6_TYPE_ECHO_REQUEST,
+		Code:      icmpv6Code,
+		Checksum:  0, // Will be calculated when sending
+		MessageBody: echoBuf.Bytes(),
+	}
 
 	srcIP, err := packemon.StrIPToBytes(DEFAULT_IP_SOURCE)
 	if err != nil {
@@ -512,15 +559,17 @@ func defaultPackets() (*packets, error) {
 	}
 
 	return &packets{
-		ethernet: ethernetHeader,
-		arp:      arp,
-		ipv4:     ipv4,
-		ipv6:     ipv6,
-		icmpv4:   icmp,
-		udp:      udp,
-		tcp:      tcp,
-		dns:      dns,
-		http:     http,
+		ethernet:   ethernetHeader,
+		arp:        arp,
+		ipv4:       ipv4,
+		ipv6:       ipv6,
+		icmpv4:     icmp,
+		icmpv6:     icmpv6,
+		icmpv6Echo: icmpv6Echo,
+		udp:        udp,
+		tcp:        tcp,
+		dns:        dns,
+		http:       http,
 	}, nil
 }
 

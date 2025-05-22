@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -15,6 +16,7 @@ type sender struct {
 	packets                 *packets
 	sendFn                  func(*packemon.EthernetFrame) error
 }
+
 
 func newSender(packets *packets, sendFn func(*packemon.EthernetFrame) error) *sender {
 	selectedProtocolByLayer := map[string]string{}
@@ -41,6 +43,48 @@ func (s *sender) sendLayer3(ctx context.Context) error {
 
 func (s *sender) sendLayer4(ctx context.Context) error {
 	return s.send(ctx, "L4")
+}
+
+func (s *sender) sendLayer4IPv6(ctx context.Context) error {
+	defer func() {
+		if e := recover(); e != nil {
+			trace := debug.Stack()
+			fmt.Errorf("Panic!!\n%v\nstack trace\n%s\n", e, string(trace))
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(ctx, TIMEOUT)
+	defer cancel()
+
+	// Create ICMPv6 echo request body if needed
+	if s.packets.icmpv6.Type == packemon.ICMPv6_TYPE_ECHO_REQUEST && s.packets.icmpv6Echo != nil {
+		// Convert echo to bytes
+		echoBuf := &bytes.Buffer{}
+		packemon.WriteUint16(echoBuf, s.packets.icmpv6Echo.Identifier)
+		packemon.WriteUint16(echoBuf, s.packets.icmpv6Echo.SequenceNumber)
+		echoBuf.Write(s.packets.icmpv6Echo.Data)
+		
+		// Set the message body
+		s.packets.icmpv6.MessageBody = echoBuf.Bytes()
+	}
+	
+	// Calculate ICMPv6 checksum (requires source and destination IPv6 addresses)
+	s.packets.icmpv6.Checksum = s.packets.icmpv6.CalculateChecksum(
+		s.packets.ipv6.SrcAddr,
+		s.packets.ipv6.DstAddr,
+	)
+
+	// Set IPv6 data and payload length
+	s.packets.ipv6.Data = s.packets.icmpv6.Bytes()
+	s.packets.ipv6.PayloadLength = uint16(len(s.packets.ipv6.Data))
+	
+	// Create Ethernet frame with IPv6 data
+	ethernetFrame := &packemon.EthernetFrame{
+		Header: s.packets.ethernet,
+		Data:   s.packets.ipv6.Bytes(),
+	}
+	
+	return s.sendFn(ethernetFrame)
 }
 
 func (s *sender) sendLayer7(ctx context.Context) error {
