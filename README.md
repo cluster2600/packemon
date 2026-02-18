@@ -12,6 +12,45 @@ https://github.com/user-attachments/assets/08f96575-7aca-47e7-bdeb-6705ce2bbaba
 TUI tool for generating packets of arbitrary input and monitoring packets on any network interfaces (default: `eth0`). The list of interfaces to be specified is output when `packemon interfaces` is run.<br>
 **This tool works on Windows, macOS, and Linux.**<br>
 
+## Quickstart (CLI examples)
+
+> [!NOTE]
+> Most generator/monitor features require raw sockets / packet capture privileges. On many systems you’ll need to run `packemon` via `sudo`.
+
+```bash
+# Show available interfaces (macOS examples: en0, en1, lo0)
+packemon interfaces
+packemon interfaces --json | jq .
+
+# Monitor packets on a specific interface
+sudo packemon monitor --interface en0
+
+# Monitor with custom columns and a smaller in-memory history
+sudo packemon monitor --interface en0 --columns "dstpDSi" --limit 200
+
+# Open the packet generator TUI
+sudo packemon generator --interface en0
+
+# Debugging mode (one-shot helpers)
+sudo packemon debugging --interface en0 --proto dns --send
+```
+
+### Monitor columns (`--columns`)
+
+The `--columns` string controls which columns are shown in the packet list (default: `dstpDSi`).
+
+- `d` = Dst MAC
+- `s` = Src MAC
+- `t` = EtherType
+- `p` = High-layer proto
+- `D` = Dst IP
+- `S` = Src IP
+- `i` = Info (ports / flags)
+
+### Hex vs decimal display (Monitor list)
+
+In the Monitor packet list, **MAC addresses and EtherType are displayed in hex** (without a `0x` prefix), while **ports/IDs are displayed in decimal**.
+
 This TUI tool is now available on macOS because of **[cluster2600](https://github.com/cluster2600)** support. Thanks🎉!
 
 I intend to develop it patiently🌴
