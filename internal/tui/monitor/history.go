@@ -45,6 +45,7 @@ func (m *monitor) updateTable() {
 func (m *monitor) reCreateTable() {
 	// 一回クリア
 	m.table.Clear()
+	m.setHeader()
 
 	// filter 処理(なお、filter文字列が空なら全部表示)
 	storedMaxID := int(m.storedMaxID.get())
@@ -78,39 +79,46 @@ func (m *monitor) filterAndInsertToTable(passive *packemon.Passive, id uint64) {
 }
 
 func (m *monitor) insertToTable(r *HistoryRow) {
-	m.table.InsertRow(0)
-	m.table.SetCell(0, 0, r.id)
+	currentRow, currentColumn := m.table.GetSelection()
 
+	if m.prepend {
+		m.table.InsertRow(1)
+		m.table.SetCell(1, 0, r.id)
+		m.insertRow(1, r)
+
+		// パケットが届き、行が追加されてもカーソルをあてていた行をずらさずに固定するため
+		m.table = m.table.Select(currentRow+1, currentColumn)
+	} else {
+		next := m.table.GetRowCount()
+		m.table.InsertRow(next)
+		m.table.SetCell(next, 0, r.id)
+		m.insertRow(next, r)
+
+		m.table = m.table.Select(currentRow, currentColumn)
+	}
+}
+
+func (m *monitor) insertRow(y int, r *HistoryRow) {
 	x := 1
 	for i := range m.columns {
 		switch m.columns[i] {
 		case 'd':
-			m.table.SetCell(0, x, r.destinationMAC)
+			m.table.SetCell(y, x, r.destinationMAC)
 		case 's':
-			m.table.SetCell(0, x, r.sourceMAC)
+			m.table.SetCell(y, x, r.sourceMAC)
 		case 't':
-			m.table.SetCell(0, x, r.typ)
+			m.table.SetCell(y, x, r.typ)
 		case 'p':
-			m.table.SetCell(0, x, r.protocol)
+			m.table.SetCell(y, x, r.protocol)
 		case 'D':
-			m.table.SetCell(0, x, r.destinationIPAddr)
+			m.table.SetCell(y, x, r.destinationIPAddr)
 		case 'S':
-			m.table.SetCell(0, x, r.sourceIPAddr)
+			m.table.SetCell(y, x, r.sourceIPAddr)
 		case 'i':
-			m.table.SetCell(0, x, r.info)
+			m.table.SetCell(y, x, r.info)
 		}
 		x++
 	}
-
-	currentRow, currentColumn := m.table.GetSelection()
-
-	// カーソル下に移動してるのにパケットキャッチするたびにトップに移動するのはしんどいのでコメントアウト
-	// していたが、それも微妙かも？
-	// と思ったけどやっぱりコメントアウト
-	// m.table.ScrollToBeginning()
-
-	// パケットが届き、行が追加されてもカーソルをあてていた行をずらさずに固定するため
-	m.table = m.table.Select(currentRow+1, currentColumn)
 }
 
 func NewPacketsHistoryTable() *tview.Table {
@@ -142,30 +150,28 @@ type HistoryRow struct {
 func (m *monitor) newHistoryRow(passive *packemon.Passive, id uint64) *HistoryRow {
 	r := &HistoryRow{
 		id:             tview.NewTableCell(fmt.Sprintf("%d", id)).SetTextColor(tcell.ColorWhite),
-		destinationMAC: tview.NewTableCell(fmt.Sprintf("Dst:%x", passive.EthernetFrame.Header.Dst)).SetTextColor(tcell.Color38),
-		sourceMAC:      tview.NewTableCell(fmt.Sprintf("Src:%x", passive.EthernetFrame.Header.Src)).SetTextColor(tcell.Color48),
-		typ:            tview.NewTableCell(fmt.Sprintf("Type:%x", passive.EthernetFrame.Header.Typ)).SetTextColor(tcell.Color98),
+		destinationMAC: tview.NewTableCell(fmt.Sprintf("%x", passive.EthernetFrame.Header.Dst)).SetTextColor(headers['d'].Color),
+		sourceMAC:      tview.NewTableCell(fmt.Sprintf("%x", passive.EthernetFrame.Header.Src)).SetTextColor(headers['s'].Color),
+		typ:            tview.NewTableCell(fmt.Sprintf("%x", passive.EthernetFrame.Header.Typ)).SetTextColor(headers['t'].Color),
 	}
 
-	r.protocol = tview.NewTableCell(fmt.Sprintf("Proto:%s", passive.HighLayerProto())).SetTextColor(tcell.Color50)
+	r.protocol = tview.NewTableCell(passive.HighLayerProto()).SetTextColor(headers['p'].Color)
 
 	if passive.IPv4 != nil {
-		viewIPv4 := &IPv4{passive.IPv4}
-		r.destinationIPAddr = tview.NewTableCell(fmt.Sprintf("DstIP:%s", viewIPv4.StrDstIPAddr())).SetTextColor(tcell.Color51)
-		r.sourceIPAddr = tview.NewTableCell(fmt.Sprintf("SrcIP:%s", viewIPv4.StrSrcIPAddr())).SetTextColor(tcell.Color181)
+		r.destinationIPAddr = tview.NewTableCell(passive.IPv4.StrDstIPAddr()).SetTextColor(headers['D'].Color)
+		r.sourceIPAddr = tview.NewTableCell(passive.IPv4.StrSrcIPAddr()).SetTextColor(headers['S'].Color)
 	} else if passive.IPv6 != nil {
-		viewIPv6 := &IPv6{passive.IPv6}
-		r.destinationIPAddr = tview.NewTableCell(fmt.Sprintf("DstIP:%s", viewIPv6.StrDstIPAddr())).SetTextColor(tcell.Color51)
-		r.sourceIPAddr = tview.NewTableCell(fmt.Sprintf("SrcIP:%s", viewIPv6.StrSrcIPAddr())).SetTextColor(tcell.Color181)
+		r.destinationIPAddr = tview.NewTableCell(passive.IPv6.StrDstIPAddr()).SetTextColor(headers['D'].Color)
+		r.sourceIPAddr = tview.NewTableCell(passive.IPv6.StrSrcIPAddr()).SetTextColor(headers['S'].Color)
 	} else {
-		r.destinationIPAddr = tview.NewTableCell(fmt.Sprintf("DstIP:%s", "-")).SetTextColor(tcell.Color51)
-		r.sourceIPAddr = tview.NewTableCell(fmt.Sprintf("SrcIP:%s", "-")).SetTextColor(tcell.Color181)
+		r.destinationIPAddr = tview.NewTableCell("-").SetTextColor(headers['D'].Color)
+		r.sourceIPAddr = tview.NewTableCell("-").SetTextColor(headers['S'].Color)
 	}
 
 	if passive.TCP != nil {
-		r.info = tview.NewTableCell(fmt.Sprintf("%d <- %d |%s|", passive.TCP.DstPort, passive.TCP.SrcPort, passive.TCP.Flags)).SetTextColor(tcell.ColorFloralWhite)
+		r.info = tview.NewTableCell(fmt.Sprintf("%d <- %d |%s|", passive.TCP.DstPort, passive.TCP.SrcPort, passive.TCP.Flags)).SetTextColor(headers['i'].Color)
 	} else if passive.UDP != nil {
-		r.info = tview.NewTableCell(fmt.Sprintf("%d <- %d", passive.UDP.DstPort, passive.UDP.SrcPort)).SetTextColor(tcell.ColorFloralWhite)
+		r.info = tview.NewTableCell(fmt.Sprintf("%d <- %d", passive.UDP.DstPort, passive.UDP.SrcPort)).SetTextColor(headers['i'].Color)
 	}
 
 	return r

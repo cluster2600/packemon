@@ -90,8 +90,23 @@ The rightmost image shows how the packet list is filtered.
 - [x] ARP
 - [x] IPv4
 - [x] IPv6
-- [x] ICMPv4
+- [ ] ICMPv4
+  - [x] Echo Request / Echo Reply
+  - [ ] Destination Unreachable
+  - [ ] Source Quench
+  - [ ] Redirect
+  - [ ] Router Advertisement
+  - [ ] Router Solicitation
+  - [ ] Time Exceeded
+  - [ ] Parameter Problem
+  - [ ] Timestamp / Timestamp Reply
+  - [ ] Information Request / Information Reply
+  - [ ] Address Mask Request / Address Mask Reply
 - [ ] ICMPv6
+  - [x] Echo Request / Echo Reply
+  - [x] Neighbor Solicitation / Neighbor Advertisement
+  - [x] Router Solicitation / Router Advertisement
+  - [x] Redirect 
 - [x] TCP
 - [x] UDP
 - [x] TLSv1.2
@@ -158,6 +173,11 @@ The rightmost image shows how the packet list is filtered.
 ### Monitor any network interfaces.
 - You can specify network interface with `--interface` flag. Default is `eth0`.
 
+### Can view details for L5 and higher.
+- You can view details at the L5 level or higher by specifying the `--parse-full` flag.
+  - However, there are currently few supported protocols, and development progress has been slow...
+- If you do not specify this flag, the parse results up to L4 will be displayed (though a full dump will still be shown).
+
 ### Can filter packets to be displayed.
 - You can filter the values for each item (e.g. `Dst`, `Proto`, `SrcIP`...etc.) displayed in the listed packets.
 
@@ -172,8 +192,38 @@ The rightmost image shows how the packet list is filtered.
 - [x] ARP
 - [x] IPv4 (WIP)
 - [x] IPv6 (WIP)
-- [x] ICMPv4 (WIP)
+- [ ] ICMPv4 (WIP)
+  - [x] Echo Request
+  - [x] Echo Reply
+  - [x] Destination Unreachable
+  - [x] Source Quench
+  - [x] Redirect
+  - [ ] Router Advertisement
+  - [ ] Router Solicitation
+  - [x] Time Exceeded
+  - [x] Parameter Problem
+  - [x] Timestamp
+  - [x] Timestamp Reply
+  - [x] Information Request
+  - [x] Information Reply
+  - [x] Address Mask Request
+  - [x] Address Mask Reply
 - [ ] ICMPv6
+  - [x] Echo Request
+  - [x] Echo Reply
+  - [x] Private Experimentation (Type 200 / 201)
+  - [x] Destination Unreachable
+  - [x] Time Exceeded
+  - [x] Private Experimentation (Type 100 / 101)
+  - [x] Reserved for expansion of ICMPv6 error messages
+  - [x] Packet Too Big
+  - [x] Parameter Problem
+  - [x] Router Solicitation
+  - [x] Router Advertisement
+  - [x] Neighbor Solicitation
+  - [x] Neighbor Advertisement
+  - [x] Redirect 
+  - [x] Multicast Listener Discovery (Type 130, 131, 132)
 - [x] TCP (WIP)
 - [x] UDP
 - [x] TLSv1.2 (WIP)
@@ -333,7 +383,7 @@ USAGE:
    packemon [global options] [command [command options]]
 
 VERSION:
-   1.8.0 / revision cb61da2
+   1.X.Y / revision zzzzzzz
 
 COMMANDS:
    monitor, m, mon       Monitor mode. You can monitor packets received and sent on the specified interface. Default is 'eth0' interface.
@@ -375,7 +425,7 @@ $ sudo packemon monitor
 Packemon serves as an educational tool for understanding network protocols by allowing hands-on experimentation. You can generate custom packets at different OSI layers and observe their behavior, making it ideal for learning TCP/IP fundamentals.
 
 ### Protocol Development and Testing
-The tool supports testing custom protocol implementations across multiple layers including Ethernet, ARP, IPv4/IPv6, ICMP, TCP/UDP, TLS, DNS, and HTTP. This makes it valuable for developers working on network protocol stacks or testing protocol compliance.
+The tool supports testing custom protocol implementations across multiple layers including Ethernet, ARP, IPv4/IPv6, ICMPv4, TCP/UDP, TLS, DNS, and HTTP. This makes it valuable for developers working on network protocol stacks or testing protocol compliance.
 
 ### Network Troubleshooting and Analysis
 Packemon provides packet monitoring capabilities similar to Wireshark, allowing you to capture and analyze network traffic in real-time. You can filter packets, examine protocol details, and export captured data to pcapng format for further analysis.
@@ -398,7 +448,7 @@ Packemon demonstrates how to build network tools from scratch, serving as a refe
 
     ```sh
     # Monitor
-    $ sudo packemon monitor
+    $ sudo packemon monitor --parse-full
     ```
 
     ← Generator | Monitor →
@@ -446,7 +496,7 @@ This is a method for identifying which hosts (devices) are operational on a netw
 ||Description|How to do it in Pakemon (Generator)|
 |--|--|--|
 |ARP Scan|On a local network, broadcast an ARP request to identify the host that responds. Verify the association between the IP address and MAC address.|Currently, Packemon does not support specifying IP address ranges for requests, so you have to specify each one individually...<br><br>- `Lα` > `Ethernet` > `Destination Mac Addr` > `0xffffffffffff`<br>- `Lα` > `Ethernet` > `Ether Type` > `ARP`<br>- `Lβ` > `ARP` > `Hardware Type` > `0x0001`<br>- `Lβ` > `ARP` > `Protocol Type` > `0x0800`<br>- `Lβ` > `ARP` > `Hardware Size` > `0x06`<br>- `Lβ` > `ARP` > `Protocol Size` > `0x04`<br>- `Lβ` > `ARP` > `Operation Code` > `0x0001`<br>- `Lβ` > `ARP` > `Target Mac Addr` > `0x000000000000`<br>- `Lβ` > `ARP` > `Target IP Addr` > (Target IP Addr)<br>- `Lβ` > `ARP` > Click on `Send!`|
-|Ping Sweep|Send ICMP echo requests to multiple IP addresses on the network to identify the hosts that return echo replies. This is a simple and widely used technique.|Currently, Packemon does not support specifying IP address ranges for requests, so you have to specify each one individually...<br><br>- `Lα` > `Ethernet` > `Ether Type` > `IPv4`<br>- `Lβ` > `IPv4` > `Protocol` > `ICMP`<br>- `Lβ` > `IPv4` > `Destination IP Addr` > (Target IP Addr)<br>- `Lγ` > `ICMP` > `Type` > `0x08`<br>- `Lγ` > `ICMP` > Click on `Send!`|
+|Ping Sweep|Send ICMPv4 echo requests to multiple IP addresses on the network to identify the hosts that return echo replies. This is a simple and widely used technique.|Currently, Packemon does not support specifying IP address ranges for requests, so you have to specify each one individually...<br><br>- `Lα` > `Ethernet` > `Ether Type` > `IPv4`<br>- `Lβ` > `IPv4` > `Protocol` > `ICMPv4`<br>- `Lβ` > `IPv4` > `Destination IP Addr` > (Target IP Addr)<br>- `Lγ` > `ICMPv4` > `Type` > `0x08`<br>- `Lγ` > `ICMPv4` > Click on `Send!`|
 
 </details>
 
@@ -461,7 +511,7 @@ This is a method for identifying which ports are open (which services are runnin
 |--|--|--|
 |TCP Connect Scan|This is the most basic scanning method, which verifies whether a port is open by performing a complete TCP three-way handshake (SYN -> SYN/ACK -> ACK).|- `Lα` > `Ethernet` > `Ether Type` > `IPv4`<br>- `Lβ` > `IPv4` > `Protocol` > `TCP`<br>- `Lβ` > `IPv4` > `Destination IP Addr` > (Target IP Addr)<br>- `Lγ` > `TCP` > `Do TCP 3way handshake ?` > (Check!)<br>- `Lγ` > `TCP` > `Destination Port` > (Target Port)<br>- `Lγ` > `TCP` > Click on `Send!`|
 |SYN Scan (Half-open Scan)|This technique checks port availability without completing the TCP handshake. It sends a SYN packet; if a SYN/ACK packet is returned, the port is deemed open. It then sends a RST packet to reset the connection. Because it leaves minimal traces in logs, it is also called a stealth scan.|When using Packemon on Linux, since it drops RST packets, I only wrote the procedure for sending Syn packets.<br><br>- `Lα` > `Ethernet` > `Ether Type` > `IPv4`<br>- `Lβ` > `IPv4` > `Protocol` > `TCP`<br>- `Lβ` > `IPv4` > `Destination IP Addr` > (Target IP Addr)<br>- `Lγ` > `TCP` > `Do TCP 3way handshake ?` > (No Check!)<br>- `Lγ` > `TCP` > `Flags` > `0x02`<br>- `Lγ` > `TCP` > `Destination Port` > (Target Port)<br>- `Lγ` > `TCP` > Click on `Send!`|
-|UDP Scan|Because it uses the connectionless UDP protocol, it is well-suited for verifying whether a UDP port is open or closed. It sends a UDP packet and determines that the port is open if there is no ICMP Port Unreachable (Type 3, Code 3) response.|- `Lα` > `Ethernet` > `Ether Type` > `IPv4`<br>- `Lβ` > `IPv4` > `Protocol` > `UDP`<br>- `Lβ` > `IPv4` > `Destination IP Addr` > (Target IP Addr)<br>- `Lγ` > `UDP` > `Destination Port` > (Target Port)<br>- `Lγ` > `UDP` > Click on `Send!`|
+|UDP Scan|Because it uses the connectionless UDP protocol, it is well-suited for verifying whether a UDP port is open or closed. It sends a UDP packet and determines that the port is open if there is no ICMPv4 Port Unreachable (Type 3, Code 3) response.|- `Lα` > `Ethernet` > `Ether Type` > `IPv4`<br>- `Lβ` > `IPv4` > `Protocol` > `UDP`<br>- `Lβ` > `IPv4` > `Destination IP Addr` > (Target IP Addr)<br>- `Lγ` > `UDP` > `Destination Port` > (Target Port)<br>- `Lγ` > `UDP` > Click on `Send!`|
 
 </details>
 
@@ -539,8 +589,8 @@ thanks!
 
 - WSL2のDebianで動作した。
 
-- 任意の Ethernet ヘッダ / IPv4 ヘッダ / ARP / ICMP を楽に作れてフレームを送信できる
-- 以下はtmuxで3分割した画面に各種ヘッダのフォーム画面を表示している。そして ICMP echo request を送信し、 echo reply が返ってきていることを Wireshark で確認した様子
+- 任意の Ethernet ヘッダ / IPv4 ヘッダ / ARP / ICMPv4 を楽に作れてフレームを送信できる
+- 以下はtmuxで3分割した画面に各種ヘッダのフォーム画面を表示している。そして ICMPv4 echo request を送信し、 echo reply が返ってきていることを Wireshark で確認した様子
   ![](./assets/tui_ether_ip_icmp.png)
   ![](./assets/tui_send_icmp_result1.png)
   ![](./assets/tui_send_icmp_result2.png)

@@ -13,11 +13,27 @@ type Passive struct {
 	DNS                                             *DNS
 	TCP                                             *TCP
 	UDP                                             *UDP
-	ICMP                                            *ICMP
-	IPv4                                            *IPv4
-	IPv6                                            *IPv6
-	ARP                                             *ARP
-	EthernetFrame                                   *EthernetFrame
+
+	ICMPv4Echo             *ICMPv4Echo
+	ICMPv4Error            *ICMPv4Error
+	ICMPv4ParameterProblem *ICMPv4ParameterProblem
+	ICMPv4Redirect         *ICMPv4Redirect
+
+	ICMPv6Error                      *ICMPv6Error
+	ICMPv6PacketTooBig               *ICMPv6PacketTooBig
+	ICMPv6ParameterProblem           *ICMPv6ParameterProblem
+	ICMPv6Echo                       *ICMPv6Echo
+	ICMPv6NeighborSolicitation       *ICMPv6NeighborSolicitation
+	ICMPv6NeighborAdvertisement      *ICMPv6NeighborAdvertisement
+	ICMPv6RouterSolicitation         *ICMPv6RouterSolicitation
+	ICMPv6RouterAdvertisement        *ICMPv6RouterAdvertisement
+	ICMPv6Redirect                   *ICMPv6Redirect
+	ICMPv6MulticastListenerDiscovery *ICMPv6MulticastListenerDiscovery
+
+	IPv4          *IPv4
+	IPv6          *IPv6
+	ARP           *ARP
+	EthernetFrame *EthernetFrame
 }
 
 func (p *Passive) HighLayerProto() string {
@@ -25,6 +41,7 @@ func (p *Passive) HighLayerProto() string {
 	if p.EthernetFrame != nil {
 		proto = "ETHER"
 	}
+
 	if p.ARP != nil {
 		proto = "ARP"
 	}
@@ -34,8 +51,26 @@ func (p *Passive) HighLayerProto() string {
 	if p.IPv6 != nil {
 		proto = "IPv6"
 	}
-	if p.ICMP != nil {
-		proto = "ICMP"
+
+	if p.ICMPv4Echo != nil ||
+		p.ICMPv4Error != nil ||
+		p.ICMPv4ParameterProblem != nil ||
+		p.ICMPv4Redirect != nil {
+
+		proto = "ICMPv4"
+	}
+	if p.ICMPv6Error != nil ||
+		p.ICMPv6PacketTooBig != nil ||
+		p.ICMPv6ParameterProblem != nil ||
+		p.ICMPv6Echo != nil ||
+		p.ICMPv6NeighborSolicitation != nil ||
+		p.ICMPv6NeighborAdvertisement != nil ||
+		p.ICMPv6RouterSolicitation != nil ||
+		p.ICMPv6RouterAdvertisement != nil ||
+		p.ICMPv6Redirect != nil ||
+		p.ICMPv6MulticastListenerDiscovery != nil {
+
+		proto = "ICMPv6"
 	}
 	if p.UDP != nil {
 		proto = "UDP"
@@ -43,6 +78,7 @@ func (p *Passive) HighLayerProto() string {
 	if p.TCP != nil {
 		proto = "TCP"
 	}
+
 	// TODO: ちょっとTLSのversionは出さないとかにした方がいいかも？
 	if p.TLSClientHello != nil || p.TLSServerHello != nil || p.TLSClientKeyExchange != nil || p.TLSChangeCipherSpecAndEncryptedHandshakeMessage != nil || p.TLSApplicationData != nil || p.TLSEncryptedAlert != nil {
 		// proto = "TLSv1.2"
@@ -52,6 +88,7 @@ func (p *Passive) HighLayerProto() string {
 		// proto = "TLSv1.3"
 		proto = "TLS"
 	}
+
 	if p.DNS != nil {
 		proto = "DNS"
 	}

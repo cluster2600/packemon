@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"net"
+	"slices"
 	"strconv"
 	"time"
 
@@ -44,7 +45,7 @@ var (
 	DEFAULT_IP_FLAGS           = "0x40"
 	DEFAULT_IP_FRAGMENT_OFFSET = "0x0000"
 	DEFAULT_IP_TTL             = "0x80"
-	DEFAULT_IP_PROTOCOL        = "ICMP"
+	DEFAULT_IP_PROTOCOL        = "ICMPv4"
 	DEFAULT_IP_HEADER_CHECKSUM = "0x0000"
 	DEFAULT_IP_SOURCE          = ""
 	DEFAULT_IP_DESTINATION     = ""
@@ -58,11 +59,17 @@ var (
 	DEFAULT_IPv6_SOURCE         = ""
 	DEFAULT_IPv6_DESTINATION    = ""
 
-	DEFAULT_ICMP_TYPE       = "0x08"
-	DEFAULT_ICMP_CODE       = "0x00"
-	DEFAULT_ICMP_CHECKSUM   = "0x0000"
-	DEFAULT_ICMP_IDENTIFIER = "0x34a1"
-	DEFAULT_ICMP_SEQUENCE   = "0x0001"
+	DEFAULT_ICMPv4_TYPE       = "0x08"
+	DEFAULT_ICMPv4_CODE       = "0x00"
+	DEFAULT_ICMPv4_CHECKSUM   = "0x0000"
+	DEFAULT_ICMPv4_IDENTIFIER = "0x34a1"
+	DEFAULT_ICMPv4_SEQUENCE   = "0x0001"
+
+	DEFAULT_ICMPv6_TYPE       = "0x80"
+	DEFAULT_ICMPv6_CODE       = "0x00"
+	DEFAULT_ICMPv6_CHECKSUM   = "0x0000"
+	DEFAULT_ICMPv6_IDENTIFIER = "0x34a1"
+	DEFAULT_ICMPv6_SEQUENCE   = "0x0001"
 
 	DEFAULT_UDP_PORT_SOURCE      = "47000"
 	DEFAULT_UDP_PORT_DESTINATION = "53"
@@ -128,7 +135,23 @@ func (g *generator) form(ctx context.Context, sendFn func(*packemon.EthernetFram
 	udpForm := g.udpForm()
 	udpForm.SetBorder(true).SetTitle(" UDP ").SetTitleAlign(tview.AlignLeft)
 	icmpForm := g.icmpForm()
-	icmpForm.SetBorder(true).SetTitle(" ICMP ").SetTitleAlign(tview.AlignLeft)
+	icmpForm.SetBorder(true).SetTitle(" ICMPv4 ").SetTitleAlign(tview.AlignLeft)
+
+	// ここはICMPv6用の初期化
+	icmpv6SelectPage := g.icmpv6SelectPage()
+	icmpv6SelectPage.SetBorder(true).SetTitle(" ICMPv6 ").SetTitleAlign(tview.AlignLeft)
+	icmpv6RchoRequestEchoReplyForm := g.icmpv6EchoRequestEchoReplyForm()
+	icmpv6RchoRequestEchoReplyForm.SetBorder(true).SetTitle(" ICMPv6 Echo Request/Reply ").SetTitleAlign(tview.AlignLeft)
+	icmpv6NeighborSolicitationForm := g.icmpv6NeighborSolicitationForm()
+	icmpv6NeighborSolicitationForm.SetBorder(true).SetTitle(" ICMPv6 Neighbor Solicitation").SetTitleAlign(tview.AlignLeft)
+	icmpv6NeighborAdvertisementForm := g.icmpv6NeighborAdvertisementForm()
+	icmpv6NeighborAdvertisementForm.SetBorder(true).SetTitle(" ICMPv6 Neighbor Advertisement").SetTitleAlign(tview.AlignLeft)
+	icmpv6RouterSolicitationForm := g.icmpv6RouterSolicitationForm()
+	icmpv6RouterSolicitationForm.SetBorder(true).SetTitle(" ICMPv6 Router Solicitation").SetTitleAlign(tview.AlignLeft)
+	icmpv6RouterAdvertisementForm := g.icmpv6RouterAdvertisementForm()
+	icmpv6RouterAdvertisementForm.SetBorder(true).SetTitle(" ICMPv6 Router Advertisement").SetTitleAlign(tview.AlignLeft)
+	icmpv6RedirectForm := g.icmpv6RedirectForm()
+	icmpv6RedirectForm.SetBorder(true).SetTitle(" ICMPv6 Redirect").SetTitleAlign(tview.AlignLeft)
 
 	// L3
 	ipv6Form := g.ipv6Form()
@@ -150,7 +173,16 @@ func (g *generator) form(ctx context.Context, sendFn func(*packemon.EthernetFram
 		AddPage("QUIC", quicForm, true, true).
 		AddPage("UDP", udpForm, true, true).
 		AddPage("TCP", tcpForm, true, true).
-		AddPage("ICMP", icmpForm, true, true).
+		AddPage("ICMPv4", icmpForm, true, true).
+		// ↓ICMPv6用page
+		AddPage("ICMPv6", icmpv6SelectPage, true, true).
+		AddPage(SELECTABLE_FORM_ICMPv6_ECHO_REQUEST_ECHO_REPLY, icmpv6RchoRequestEchoReplyForm, true, true).
+		AddPage(SELECTABLE_FORM_ICMPv6_NEIGHBOR_SOLICITATION, icmpv6NeighborSolicitationForm, true, true).
+		AddPage(SELECTABLE_FORM_ICMPv6_NEIGHBOR_ADVERTISEMENT, icmpv6NeighborAdvertisementForm, true, true).
+		AddPage(SELECTABLE_FORM_ICMPv6_ROUTER_SOLICITATION, icmpv6RouterSolicitationForm, true, true).
+		AddPage(SELECTABLE_FORM_ICMPv6_ROUTER_ADVERTISEMENT, icmpv6RouterAdvertisementForm, true, true).
+		AddPage(SELECTABLE_FORM_ICMPv6_REDIRECT, icmpv6RedirectForm, true, true).
+		// ↑ICMPv6用page
 		AddPage("IPv6", ipv6Form, true, true).
 		AddPage("IPv4", ipv4Form, true, true).
 		AddPage("ARP", arpForm, true, true).
@@ -158,12 +190,8 @@ func (g *generator) form(ctx context.Context, sendFn func(*packemon.EthernetFram
 
 	switchProtocol := func(targetLayer string) func(targetProtocol string, switchableProtocols []string) {
 		return func(targetProtocol string, switchableProtocols []string) {
-			for _, protocol := range switchableProtocols {
-				if targetProtocol == protocol {
-					g.sender.selectedProtocolByLayer[targetLayer] = targetProtocol
-					g.pages.SwitchToPage(targetProtocol)
-					g.app.SetFocus(g.pages)
-				}
+			if slices.Contains(switchableProtocols, targetProtocol) {
+				g.switchToProtocolPage(targetLayer, targetProtocol)
 			}
 		}
 	}
@@ -189,7 +217,7 @@ func (g *generator) form(ctx context.Context, sendFn func(*packemon.EthernetFram
 	})
 	l5_6Protocols.SetCurrentOption(0)
 
-	l4s := []string{"", "ICMP", "TCP", "UDP"}
+	l4s := []string{"", "ICMPv4", "ICMPv6", "TCP", "UDP"}
 	l4Protocols := tview.NewDropDown()
 	l4Protocols.SetTitle("Lγ").SetBorder(true)
 	l4Protocols.SetOptions(l4s, func(text string, index int) {
@@ -290,17 +318,29 @@ func (g *generator) form(ctx context.Context, sendFn func(*packemon.EthernetFram
 	return nil
 }
 
+func (g *generator) switchToProtocolPage(targetLayer string, targetProtocol string) {
+	g.sender.selectedProtocolByLayer[targetLayer] = targetProtocol
+	g.pages.SwitchToPage(targetProtocol)
+	g.app.SetFocus(g.pages)
+}
+
 type packets struct {
-	ethernet *packemon.EthernetHeader
-	arp      *packemon.ARP
-	ipv4     *packemon.IPv4
-	ipv6     *packemon.IPv6
-	icmpv4   *packemon.ICMP
-	tcp      *packemon.TCP
-	udp      *packemon.UDP
-	dns      *packemon.DNS
-	quic     *packemon.QUIC
-	http     *packemon.HTTP
+	ethernet                    *packemon.EthernetHeader
+	arp                         *packemon.ARP
+	ipv4                        *packemon.IPv4
+	ipv6                        *packemon.IPv6
+	icmpv4                      *packemon.ICMPv4Echo
+	icmpv6EchoRequestEchoReply  *packemon.ICMPv6Echo
+	icmpv6NeighborSolicitation  *packemon.ICMPv6NeighborSolicitation
+	icmpv6NeighborAdvertisement *packemon.ICMPv6NeighborAdvertisement
+	icmpv6RouterSolicitation    *packemon.ICMPv6RouterSolicitation
+	icmpv6RouterAdvertisement   *packemon.ICMPv6RouterAdvertisement
+	icmpv6Redirect              *packemon.ICMPv6Redirect
+	tcp                         *packemon.TCP
+	udp                         *packemon.UDP
+	dns                         *packemon.DNS
+	quic                        *packemon.QUIC
+	http                        *packemon.HTTP
 }
 
 func defaultPackets() (*packets, error) {
@@ -416,27 +456,84 @@ func defaultPackets() (*packets, error) {
 	}
 	tcp.Flags = packemon.TCPFlags(tcpFlags)
 
-	icmpType, err := strHexToUint8(DEFAULT_ICMP_TYPE)
+	icmpType, err := strHexToUint8(DEFAULT_ICMPv4_TYPE)
 	if err != nil {
 		return nil, err
 	}
-	icmpCode, err := strHexToUint8(DEFAULT_ICMP_CODE)
+	icmpCode, err := strHexToUint8(DEFAULT_ICMPv4_CODE)
 	if err != nil {
 		return nil, err
 	}
-	icmpIdentifier, err := packemon.StrHexToBytes2(DEFAULT_ICMP_IDENTIFIER)
+	icmpIdentifier, err := packemon.StrHexToBytes2(DEFAULT_ICMPv4_IDENTIFIER)
 	if err != nil {
 		return nil, err
 	}
-	icmpSequence, err := packemon.StrHexToBytes2(DEFAULT_ICMP_SEQUENCE)
+	icmpSequence, err := packemon.StrHexToBytes2(DEFAULT_ICMPv4_SEQUENCE)
 	if err != nil {
 		return nil, err
 	}
-	icmp := &packemon.ICMP{
-		Typ:        icmpType,
-		Code:       icmpCode,
+	icmp := &packemon.ICMPv4Echo{
+		Header: &packemon.ICMPHeader{
+			Typ:  icmpType,
+			Code: icmpCode,
+		},
 		Identifier: binary.BigEndian.Uint16(icmpIdentifier),
 		Sequence:   binary.BigEndian.Uint16(icmpSequence),
+	}
+
+	icmpv6Type, err := strHexToUint8(DEFAULT_ICMPv6_TYPE)
+	if err != nil {
+		return nil, err
+	}
+	icmpv6Code, err := strHexToUint8(DEFAULT_ICMPv6_CODE)
+	if err != nil {
+		return nil, err
+	}
+	icmpv6Identifier, err := packemon.StrHexToBytes2(DEFAULT_ICMPv6_IDENTIFIER)
+	if err != nil {
+		return nil, err
+	}
+	icmpv6Sequence, err := packemon.StrHexToBytes2(DEFAULT_ICMPv6_SEQUENCE)
+	if err != nil {
+		return nil, err
+	}
+	icmpv6Echo := &packemon.ICMPv6Echo{
+		Header: &packemon.ICMPHeader{
+			Typ:  icmpv6Type,
+			Code: icmpv6Code,
+		},
+		Identifier: binary.BigEndian.Uint16(icmpv6Identifier),
+		Sequence:   binary.BigEndian.Uint16(icmpv6Sequence),
+	}
+	icmpv6NeighborSolicitation := &packemon.ICMPv6NeighborSolicitation{
+		Header: &packemon.ICMPHeader{
+			Typ:  packemon.ICMPv6_TYPE_NEIGHBOR_SOLICITATION,
+			Code: icmpv6Code,
+		},
+	}
+	icmpv6NeighborAdvertisement := &packemon.ICMPv6NeighborAdvertisement{
+		Header: &packemon.ICMPHeader{
+			Typ:  packemon.ICMPv6_TYPE_NEIGHBOR_ADVERTISEMENT,
+			Code: icmpv6Code,
+		},
+	}
+	icmpv6RouterSolicitation := &packemon.ICMPv6RouterSolicitation{
+		Header: &packemon.ICMPHeader{
+			Typ:  packemon.ICMPv6_TYPE_ROUTER_SOLICITATION,
+			Code: icmpv6Code,
+		},
+	}
+	icmpv6RouterAdvertisement := &packemon.ICMPv6RouterAdvertisement{
+		Header: &packemon.ICMPHeader{
+			Typ:  packemon.ICMPv6_TYPE_ROUTER_ADVERTISEMENT,
+			Code: icmpv6Code,
+		},
+	}
+	icmpv6Redirect := &packemon.ICMPv6Redirect{
+		Header: &packemon.ICMPHeader{
+			Typ:  packemon.ICMPv6_TYPE_REDIRECT,
+			Code: icmpv6Code,
+		},
 	}
 
 	srcIP, err := packemon.StrIPToBytes(DEFAULT_IP_SOURCE)
@@ -555,16 +652,22 @@ func defaultPackets() (*packets, error) {
 	}
 
 	return &packets{
-		ethernet: ethernetHeader,
-		arp:      arp,
-		ipv4:     ipv4,
-		ipv6:     ipv6,
-		icmpv4:   icmp,
-		udp:      udp,
-		tcp:      tcp,
-		dns:      dns,
-		quic:     quic,
-		http:     http,
+		ethernet:                    ethernetHeader,
+		arp:                         arp,
+		ipv4:                        ipv4,
+		ipv6:                        ipv6,
+		icmpv4:                      icmp,
+		icmpv6EchoRequestEchoReply:  icmpv6Echo,
+		icmpv6NeighborSolicitation:  icmpv6NeighborSolicitation,
+		icmpv6NeighborAdvertisement: icmpv6NeighborAdvertisement,
+		icmpv6RouterSolicitation:    icmpv6RouterSolicitation,
+		icmpv6RouterAdvertisement:   icmpv6RouterAdvertisement,
+		icmpv6Redirect:              icmpv6Redirect,
+		udp:                         udp,
+		tcp:                         tcp,
+		dns:                         dns,
+		quic:                        quic,
+		http:                        http,
 	}, nil
 }
 

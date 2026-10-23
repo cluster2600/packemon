@@ -11,8 +11,6 @@ import (
 )
 
 type Viewer interface {
-	rows() int
-	columns() int
 	viewTable() *tview.Table
 }
 
@@ -26,32 +24,17 @@ func (m *monitor) updateView(passive *packemon.Passive) {
 			}
 		}()
 
-		packetDetail := tview.NewGrid()
+		packetDetail := tview.NewFlex().SetDirection(tview.FlexRow)
 
 		m.app.QueueUpdate(func() {
 			packetDetail.Clear()
 		})
 
-		// m.grid.RemoveItem(m.grid) // ほんと？
-
-		// +1 分は、PCAP保存領域用(savingPCAPView)
-		rows := make([]int, len(viewers)+1)
-		columns := make([]int, len(viewers)+1)
 		for i := range viewers {
-			rows[i] = viewers[i].rows()
-			columns[i] = viewers[i].columns()
-		}
-
-		// SetRows しなくなったので、各テーブルの rows メソッドいらないかも
-		// t.grid.SetRows(rows...).SetColumns(columns...).SetBorders(false)
-		packetDetail.SetColumns(columns...).SetBorders(false)
-
-		for i := range viewers {
-			packetDetail.AddItem(viewers[i].viewTable(), i, 0, 1, 3, 0, 0, false) // focus=true にするとスクロールしない
+			packetDetail.AddItem(viewers[i].viewTable(), 0, 1, false)
 		}
 		savingPCAPView := m.savingPCAPView(passive)
-		row := len(viewers)
-		packetDetail.AddItem(savingPCAPView, row, 0, 1, 3, 0, 0, false)
+		packetDetail.AddItem(savingPCAPView, 0, 1, false)
 
 		packetDetail.SetInputCapture(
 			func(event *tcell.EventKey) *tcell.EventKey {
@@ -76,84 +59,136 @@ func (m *monitor) updateView(passive *packemon.Passive) {
 func passiveToViewers(passive *packemon.Passive) []Viewer {
 	viewers := []Viewer{}
 	hexdump := &HexadecimalDump{}
+	// FieldNode を実装するプロトコルは汎用レンダラ（FieldNodeView）で表示する。
+	// 表示フィールドの定義は各プロトコルの FieldNode メソッド（例: ethernet.go）に一元化されている
 	if passive.EthernetFrame != nil {
-		viewers = append(viewers, &EthernetFrame{passive.EthernetFrame})
+		viewers = append(viewers, &FieldNodeView{passive.EthernetFrame.FieldNode()})
 		hexdump.EthernetFrame = passive.EthernetFrame
 	}
+
 	if passive.ARP != nil {
-		viewers = append(viewers, &ARP{passive.ARP})
+		viewers = append(viewers, &FieldNodeView{passive.ARP.FieldNode()})
 		hexdump.ARP = passive.ARP
 	}
 	if passive.IPv4 != nil {
-		viewers = append(viewers, &IPv4{passive.IPv4})
+		viewers = append(viewers, &FieldNodeView{passive.IPv4.FieldNode()})
 		hexdump.IPv4 = passive.IPv4
 	}
 	if passive.IPv6 != nil {
-		viewers = append(viewers, &IPv6{passive.IPv6})
+		viewers = append(viewers, &FieldNodeView{passive.IPv6.FieldNode()})
 		hexdump.IPv6 = passive.IPv6
 	}
-	if passive.ICMP != nil {
-		viewers = append(viewers, &ICMP{passive.ICMP})
-		hexdump.ICMP = passive.ICMP
+
+	if passive.ICMPv4Echo != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv4Echo.FieldNode()})
+		hexdump.ICMPv4Echo = passive.ICMPv4Echo
 	}
+	if passive.ICMPv4Error != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv4Error.FieldNode()})
+		hexdump.ICMPv4Error = passive.ICMPv4Error
+	}
+	if passive.ICMPv4ParameterProblem != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv4ParameterProblem.FieldNode()})
+		hexdump.ICMPv4ParameterProblem = passive.ICMPv4ParameterProblem
+	}
+	if passive.ICMPv4Redirect != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv4Redirect.FieldNode()})
+		hexdump.ICMPv4Redirect = passive.ICMPv4Redirect
+	}
+
+	if passive.ICMPv6Error != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6Error.FieldNode()})
+		hexdump.ICMPv6Error = passive.ICMPv6Error
+	}
+	if passive.ICMPv6PacketTooBig != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6PacketTooBig.FieldNode()})
+		hexdump.ICMPv6PacketTooBig = passive.ICMPv6PacketTooBig
+	}
+	if passive.ICMPv6ParameterProblem != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6ParameterProblem.FieldNode()})
+		hexdump.ICMPv6ParameterProblem = passive.ICMPv6ParameterProblem
+	}
+	if passive.ICMPv6Echo != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6Echo.FieldNode()})
+		hexdump.ICMPv6Echo = passive.ICMPv6Echo
+	}
+	if passive.ICMPv6NeighborSolicitation != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6NeighborSolicitation.FieldNode()})
+		hexdump.ICMPv6NeighborSolicitation = passive.ICMPv6NeighborSolicitation
+	}
+	if passive.ICMPv6NeighborAdvertisement != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6NeighborAdvertisement.FieldNode()})
+		hexdump.ICMPv6NeighborAdvertisement = passive.ICMPv6NeighborAdvertisement
+	}
+	if passive.ICMPv6RouterSolicitation != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6RouterSolicitation.FieldNode()})
+		hexdump.ICMPv6RouterSolicitation = passive.ICMPv6RouterSolicitation
+	}
+	if passive.ICMPv6RouterAdvertisement != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6RouterAdvertisement.FieldNode()})
+		hexdump.ICMPv6RouterAdvertisement = passive.ICMPv6RouterAdvertisement
+	}
+	if passive.ICMPv6Redirect != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6Redirect.FieldNode()})
+		hexdump.ICMPv6Redirect = passive.ICMPv6Redirect
+	}
+	if passive.ICMPv6MulticastListenerDiscovery != nil {
+		viewers = append(viewers, &FieldNodeView{passive.ICMPv6MulticastListenerDiscovery.FieldNode()})
+		hexdump.ICMPv6MulticastListenerDiscovery = passive.ICMPv6MulticastListenerDiscovery
+	}
+
 	if passive.TCP != nil {
-		viewers = append(viewers, &TCP{passive.TCP})
+		viewers = append(viewers, &FieldNodeView{passive.TCP.FieldNode()})
 		hexdump.TCP = passive.TCP
 	}
 	if passive.UDP != nil {
-		viewers = append(viewers, &UDP{passive.UDP})
+		viewers = append(viewers, &FieldNodeView{passive.UDP.FieldNode()})
 		hexdump.UDP = passive.UDP
 	}
 
-	// TODO: どうにかしたい. TLS でまとめたい
 	if passive.TLSClientHello != nil {
-		viewers = append(viewers, &TLSv1_2_CLIENT_HELLO{passive.TLSClientHello})
+		viewers = append(viewers, &FieldNodeView{passive.TLSClientHello.FieldNode()})
 		hexdump.TLSClientHello = passive.TLSClientHello
 	}
 	if passive.TLSServerHello != nil {
-		viewers = append(viewers, &TLSv1_2_SERVER_HELLO{passive.TLSServerHello})
+		viewers = append(viewers, &FieldNodeView{passive.TLSServerHello.FieldNode()})
 		hexdump.TLSServerHello = passive.TLSServerHello
 	}
 	if passive.TLSServerHelloFor1_3 != nil {
-		viewers = append(viewers, &TLSv1_3_SERVER_HELLO{passive.TLSServerHelloFor1_3})
+		viewers = append(viewers, &FieldNodeView{passive.TLSServerHelloFor1_3.FieldNode()})
 		hexdump.TLSServerHelloFor1_3 = passive.TLSServerHelloFor1_3
 	}
 	if passive.TLSClientKeyExchange != nil {
-		viewers = append(viewers, &TLSv1_2_ClientKeyExchange{passive.TLSClientKeyExchange})
+		viewers = append(viewers, &FieldNodeView{passive.TLSClientKeyExchange.FieldNode()})
 		hexdump.TLSClientKeyExchange = passive.TLSClientKeyExchange
 	}
 	if passive.TLSChangeCipherSpecAndEncryptedHandshakeMessage != nil {
-		viewers = append(viewers, &TLSv1_2_ChangeCipherSpecAndEncryptedHandshakeMessage{passive.TLSChangeCipherSpecAndEncryptedHandshakeMessage})
+		viewers = append(viewers, &FieldNodeView{passive.TLSChangeCipherSpecAndEncryptedHandshakeMessage.FieldNode()})
 		hexdump.TLSChangeCipherSpecAndEncryptedHandshakeMessage = passive.TLSChangeCipherSpecAndEncryptedHandshakeMessage
 	}
 	if passive.TLSApplicationData != nil {
-		viewers = append(viewers, &TLSv1_2_ApplicationData{passive.TLSApplicationData})
+		viewers = append(viewers, &FieldNodeView{passive.TLSApplicationData.FieldNode()})
 		hexdump.TLSApplicationData = passive.TLSApplicationData
 	}
 	if passive.TLSEncryptedAlert != nil {
-		viewers = append(viewers, &TLSv1_2_EncryptedAlert{passive.TLSEncryptedAlert})
+		viewers = append(viewers, &FieldNodeView{passive.TLSEncryptedAlert.FieldNode()})
 		hexdump.TLSEncryptedAlert = passive.TLSEncryptedAlert
 	}
 
 	if passive.DNS != nil {
-		viewers = append(viewers, &DNS{passive.DNS})
+		viewers = append(viewers, &FieldNodeView{passive.DNS.FieldNode()})
 		hexdump.DNS = passive.DNS
 	}
 	if passive.HTTP != nil {
-		viewers = append(viewers, &HTTP{passive.HTTP})
+		viewers = append(viewers, &FieldNodeView{passive.HTTP.FieldNode()})
 		hexdump.HTTP = passive.HTTP
 	}
 	if passive.HTTPRes != nil {
-		viewers = append(viewers, &HTTPResponse{passive.HTTPRes})
+		viewers = append(viewers, &FieldNodeView{passive.HTTPRes.FieldNode()})
 		hexdump.HTTPResponse = passive.HTTPRes
 	}
 
 	viewers = append(viewers, hexdump)
 
 	return viewers
-}
-
-// 2byteをintへ変換
-func bytesToInt(b []byte) int {
-	return int(b[0])<<8 + int(b[1])
 }

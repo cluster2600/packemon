@@ -24,326 +24,219 @@ func (nw *NetworkInterface) Send(ethernetFrame *EthernetFrame) error {
 	return nw.send(ethernetFrame)
 }
 
-func (nw *NetworkInterface) Recieve(ctx context.Context) error {
-	return nw.recieve(ctx)
+func (nw *NetworkInterface) Recieve(ctx context.Context, shouldParseFull bool) error {
+	return nw.recieve(ctx, shouldParseFull)
 }
 
 func (nw *NetworkInterface) Close() error {
 	return nw.close()
 }
 
-func ParsedPacket(recieved []byte) (passive *Passive) {
+// TODO: 一時的なもの。TLS1.3 を試すための
+const DEBUG_10443 uint16 = 0x28CB
+
+// ParsedPacket は、受信した生バイト列をスクラッチ実装でパースして Passive を返す。
+// 上位層のパースに失敗（panic）しても、そこまでにパースできた層の Passive を返す（fail-soft）。
+// L5 以上（DNS/HTTP/TLS 等）のパースは shouldParseFull が true のときのみ行う。
+func ParsedPacket(recieved []byte, shouldParseFull bool) (passive *Passive) {
 	ethernetFrame := ParsedEthernetFrame(recieved)
+	passive = &Passive{
+		EthernetFrame: ethernetFrame,
+	}
 	defer func() {
 		if e := recover(); e != nil {
-			// TODO: なにかしらログ出す
-			// log.Printf("Panic!:\n%v\n", e)
-
-			// 一旦生のイーサネットフレームを出しとく
-			passive = &Passive{
-				EthernetFrame: ethernetFrame,
-			}
 		}
 	}()
 
-	const DEBUG_10443 uint16 = 0x28CB // TODO: 一時的なもの。TLS1.3 を試すための
+	// IEEE802.1Q(VLANタグ)付きは、タグ内の EtherType で上位プロトコルを判定する
+	etherType := ethernetFrame.Header.Typ
+	if etherType == ETHER_TYPE_DOT1Q && ethernetFrame.Header.Dot1QFiels != nil {
+		etherType = ethernetFrame.Header.Dot1QFiels.Type
+	}
 
-	switch ethernetFrame.Header.Typ {
+	switch etherType {
 	case ETHER_TYPE_ARP:
-		arp := ParsedARP(ethernetFrame.Data)
-
-		return &Passive{
-			EthernetFrame: ethernetFrame,
-			ARP:           arp,
-		}
-
-	case ETHER_TYPE_DOT1Q:
-		switch ethernetFrame.Header.Dot1QFiels.Type {
-		// TODO: トップの改装のcase ETHER_TYPE_IPv4:以降から持ってきた
-		//       共通化しないと大変
-		case ETHER_TYPE_IPv4:
-			ipv4 := ParsedIPv4(ethernetFrame.Data)
-
-			switch ipv4.Protocol {
-			case IPv4_PROTO_ICMP:
-				icmp := ParsedICMP(ipv4.Data)
-
-				return &Passive{
-					EthernetFrame: ethernetFrame,
-					IPv4:          ipv4,
-					ICMP:          icmp,
-				}
-
-			case IPv4_PROTO_TCP:
-				tcp := ParsedTCP(ipv4.Data)
-
-				passive := &Passive{
-					EthernetFrame: ethernetFrame,
-					IPv4:          ipv4,
-					TCP:           tcp,
-				}
-
-				switch tcp.DstPort {
-				case PORT_HTTP:
-					if tcp.Flags == TCP_FLAGS_PSH_ACK {
-						if http := ParsedHTTPRequest(tcp.Data); http != nil {
-							passive.HTTP = http
-						}
-					}
-					return passive
-
-				case PORT_HTTPS, DEBUG_10443:
-					ParsedTLSToPassive(tcp, passive)
-					return passive
-				}
-
-				switch tcp.SrcPort {
-				case PORT_HTTP:
-					if tcp.Flags == TCP_FLAGS_FIN_PSH_ACK || tcp.Flags == TCP_FLAGS_PSH_ACK {
-						if httpRes := ParsedHTTPResponse(tcp.Data); httpRes != nil {
-							passive.HTTPRes = httpRes
-						}
-					}
-					return passive
-
-				case PORT_HTTPS, DEBUG_10443:
-					ParsedTLSToPassive(tcp, passive)
-					return passive
-				}
-
-				return passive
-
-			case IPv4_PROTO_UDP:
-				udp := ParsedUDP(ipv4.Data)
-
-				passive := &Passive{
-					EthernetFrame: ethernetFrame,
-					IPv4:          ipv4,
-					UDP:           udp,
-				}
-
-				// DNS以外は一旦udpまでのみviewする
-				if udp.DstPort != PORT_DNS && udp.SrcPort != PORT_DNS {
-					return passive
-				}
-
-				// TODO: 53確かtcpもあったからそれのハンドリング考慮するいつか
-				// TODO: nslookup github.com でipv6用のDNSクエリ・レスポンスも返ってきてるのでそれも対応
-				//       query.type == AAAA で判別可能
-				flags := binary.BigEndian.Uint16(udp.Data[2:4])
-				if udp.DstPort == PORT_DNS && IsDNSRequest(flags) {
-					dns := ParsedDNSRequest(udp.Data)
-					passive.DNS = dns
-					return passive
-				}
-
-				if udp.SrcPort == PORT_DNS && IsDNSResponse(flags) {
-					dns := ParsedDNSResponse(udp.Data)
-					passive.DNS = dns
-					return passive
-				}
-
-				return passive
-
-			default:
-				return &Passive{
-					EthernetFrame: ethernetFrame,
-					IPv4:          ipv4,
-				}
-			}
-		case ETHER_TYPE_IPv6:
-			ipv6 := ParsedIPv6(ethernetFrame.Data)
-
-			switch ipv6.NextHeader {
-			case IPv6_NEXT_HEADER_ICMPv6:
-				// TODO:
-				return &Passive{
-					EthernetFrame: ethernetFrame,
-					IPv6:          ipv6,
-				}
-			case IPv6_NEXT_HEADER_UDP:
-				udp := ParsedUDP(ipv6.Data)
-				passive := &Passive{
-					EthernetFrame: ethernetFrame,
-					IPv6:          ipv6,
-					UDP:           udp,
-				}
-
-				// DNS以外は一旦udpまでのみviewする
-				if udp.DstPort != PORT_DNS && udp.SrcPort != PORT_DNS {
-					return passive
-				}
-
-				// TODO: 53確かtcpもあったからそれのハンドリング考慮するいつか
-				// TODO: nslookup github.com でipv6用のDNSクエリ・レスポンスも返ってきてるのでそれも対応
-				//       query.type == AAAA で判別可能
-				flags := binary.BigEndian.Uint16(udp.Data[2:4])
-				if udp.DstPort == PORT_DNS && IsDNSRequest(flags) {
-					dns := ParsedDNSRequest(udp.Data)
-					passive.DNS = dns
-					return passive
-				}
-
-				if udp.SrcPort == PORT_DNS && IsDNSResponse(flags) {
-					dns := ParsedDNSResponse(udp.Data)
-					passive.DNS = dns
-					return passive
-				}
-
-				return passive
-
-			default:
-				return &Passive{
-					EthernetFrame: ethernetFrame,
-					IPv6:          ipv6,
-				}
-			}
-		default:
-			return &Passive{
-				EthernetFrame: ethernetFrame,
-			}
-		}
-
+		passive.ARP = ParsedARP(ethernetFrame.Data)
+		return passive
 	case ETHER_TYPE_IPv4:
-		ipv4 := ParsedIPv4(ethernetFrame.Data)
-
-		switch ipv4.Protocol {
-		case IPv4_PROTO_ICMP:
-			icmp := ParsedICMP(ipv4.Data)
-
-			return &Passive{
-				EthernetFrame: ethernetFrame,
-				IPv4:          ipv4,
-				ICMP:          icmp,
-			}
-
-		case IPv4_PROTO_TCP:
-			tcp := ParsedTCP(ipv4.Data)
-
-			passive := &Passive{
-				EthernetFrame: ethernetFrame,
-				IPv4:          ipv4,
-				TCP:           tcp,
-			}
-
-			switch tcp.DstPort {
-			case PORT_HTTP:
-				if tcp.Flags == TCP_FLAGS_PSH_ACK {
-					if http := ParsedHTTPRequest(tcp.Data); http != nil {
-						passive.HTTP = http
-					}
-				}
-				return passive
-
-			case PORT_HTTPS, DEBUG_10443:
-				ParsedTLSToPassive(tcp, passive)
-				return passive
-			}
-
-			switch tcp.SrcPort {
-			case PORT_HTTP:
-				if tcp.Flags == TCP_FLAGS_FIN_PSH_ACK || tcp.Flags == TCP_FLAGS_PSH_ACK {
-					if httpRes := ParsedHTTPResponse(tcp.Data); httpRes != nil {
-						passive.HTTPRes = httpRes
-					}
-				}
-				return passive
-
-			case PORT_HTTPS, DEBUG_10443:
-				ParsedTLSToPassive(tcp, passive)
-				return passive
-			}
-
-			return passive
-
-		case IPv4_PROTO_UDP:
-			udp := ParsedUDP(ipv4.Data)
-
-			passive := &Passive{
-				EthernetFrame: ethernetFrame,
-				IPv4:          ipv4,
-				UDP:           udp,
-			}
-
-			// DNS以外は一旦udpまでのみviewする
-			if udp.DstPort != PORT_DNS && udp.SrcPort != PORT_DNS {
-				return passive
-			}
-
-			// TODO: 53確かtcpもあったからそれのハンドリング考慮するいつか
-			// TODO: nslookup github.com でipv6用のDNSクエリ・レスポンスも返ってきてるのでそれも対応
-			//       query.type == AAAA で判別可能
-			flags := binary.BigEndian.Uint16(udp.Data[2:4])
-			if udp.DstPort == PORT_DNS && IsDNSRequest(flags) {
-				dns := ParsedDNSRequest(udp.Data)
-				passive.DNS = dns
-				return passive
-			}
-
-			if udp.SrcPort == PORT_DNS && IsDNSResponse(flags) {
-				dns := ParsedDNSResponse(udp.Data)
-				passive.DNS = dns
-				return passive
-			}
-
-			return passive
-
-		default:
-			return &Passive{
-				EthernetFrame: ethernetFrame,
-				IPv4:          ipv4,
-			}
-		}
+		return parsedPassiveIPv4(ethernetFrame, shouldParseFull)
 	case ETHER_TYPE_IPv6:
-		ipv6 := ParsedIPv6(ethernetFrame.Data)
-
-		switch ipv6.NextHeader {
-		case IPv6_NEXT_HEADER_ICMPv6:
-			// TODO:
-			return &Passive{
-				EthernetFrame: ethernetFrame,
-				IPv6:          ipv6,
-			}
-		case IPv6_NEXT_HEADER_UDP:
-			udp := ParsedUDP(ipv6.Data)
-			passive := &Passive{
-				EthernetFrame: ethernetFrame,
-				IPv6:          ipv6,
-				UDP:           udp,
-			}
-
-			// DNS以外は一旦udpまでのみviewする
-			if udp.DstPort != PORT_DNS && udp.SrcPort != PORT_DNS {
-				return passive
-			}
-
-			// TODO: 53確かtcpもあったからそれのハンドリング考慮するいつか
-			// TODO: nslookup github.com でipv6用のDNSクエリ・レスポンスも返ってきてるのでそれも対応
-			//       query.type == AAAA で判別可能
-			flags := binary.BigEndian.Uint16(udp.Data[2:4])
-			if udp.DstPort == PORT_DNS && IsDNSRequest(flags) {
-				dns := ParsedDNSRequest(udp.Data)
-				passive.DNS = dns
-				return passive
-			}
-
-			if udp.SrcPort == PORT_DNS && IsDNSResponse(flags) {
-				dns := ParsedDNSResponse(udp.Data)
-				passive.DNS = dns
-				return passive
-			}
-
-			return passive
-
-		default:
-			return &Passive{
-				EthernetFrame: ethernetFrame,
-				IPv6:          ipv6,
-			}
-		}
+		return parsedPassiveIPv6(ethernetFrame, shouldParseFull)
 	default:
-		return &Passive{
-			EthernetFrame: ethernetFrame,
+		return passive
+	}
+}
+
+// parsedPassiveIPv4 は IPv4 とその上位層をパースする。
+// 上位層で panic しても、そこまでの Passive を返す（fail-soft）。
+func parsedPassiveIPv4(ethernetFrame *EthernetFrame, shouldParseFull bool) (passive *Passive) {
+	ipv4 := ParsedIPv4(ethernetFrame.Data)
+	passive = &Passive{
+		EthernetFrame: ethernetFrame,
+		IPv4:          ipv4,
+	}
+	defer func() {
+		if e := recover(); e != nil {
 		}
+	}()
+
+	switch ipv4.Protocol {
+	case IPv4_PROTO_ICMPv4:
+		parsedPassiveICMPv4(passive, ipv4)
+	case IPv4_PROTO_TCP:
+		parsedPassiveTCPLayer(passive, ipv4.Data, shouldParseFull)
+	case IPv4_PROTO_UDP:
+		parsedPassiveUDPLayer(passive, ipv4.Data, shouldParseFull)
+	}
+	return passive
+}
+
+// parsedPassiveIPv6 は IPv6 とその上位層をパースする。
+// 上位層で panic しても、そこまでの Passive を返す（fail-soft）。
+func parsedPassiveIPv6(ethernetFrame *EthernetFrame, shouldParseFull bool) (passive *Passive) {
+	ipv6 := ParsedIPv6(ethernetFrame.Data)
+	passive = &Passive{
+		EthernetFrame: ethernetFrame,
+		IPv6:          ipv6,
+	}
+	defer func() {
+		if e := recover(); e != nil {
+		}
+	}()
+
+	switch ipv6.NextHeader {
+	case IPv6_NEXT_HEADER_ICMPv6:
+		parsedPassiveICMPv6(passive, ipv6)
+	case IPv6_NEXT_HEADER_TCP:
+		parsedPassiveTCPLayer(passive, ipv6.Data, shouldParseFull)
+	case IPv6_NEXT_HEADER_UDP:
+		parsedPassiveUDPLayer(passive, ipv6.Data, shouldParseFull)
+	}
+	return passive
+}
+
+func parsedPassiveICMPv4(passive *Passive, ipv4 *IPv4) {
+	if len(ipv4.Data) > 0 {
+		switch ipv4.Data[0] {
+		case
+			ICMPv4_TYPE_ECHO, ICMPv4_TYPE_ECHO_REPLY,
+			ICMPv4_TYPE_TIMESTAMP, ICMPv4_TYPE_TIMESTAMP_REPLY,
+			ICMPv4_TYPE_INFORMATION_REQUEST, ICMPv4_TYPE_INFORMATION_REPLY,
+			ICMPv4_TYPE_ADDRESS_MASK_REQUEST, ICMPv4_TYPE_ADDRESS_MASK_REPLY:
+
+			passive.ICMPv4Echo = ParsedICMPv4Echo(ipv4.Data)
+		case ICMPv4_TYPE_DESTINATION_UNREACHABLE, ICMPv4_TYPE_TIME_EXCEEDED, ICMPv4_TYPE_SOURCE_QUENCH:
+			passive.ICMPv4Error = ParsedICMPv4Error(ipv4.Data)
+		case ICMPv4_TYPE_PARAMETER_PROBLEM:
+			passive.ICMPv4ParameterProblem = ParsedICMPv4ParameterProblem(ipv4.Data)
+		case ICMPv4_TYPE_REDIRECT:
+			passive.ICMPv4Redirect = ParsedICMPv4Redirect(ipv4.Data)
+		}
+	}
+}
+
+func parsedPassiveICMPv6(passive *Passive, ipv6 *IPv6) {
+	if len(ipv6.Data) > 0 {
+		switch ipv6.Data[0] {
+		case
+			ICMPv6_TYPE_DESTINATION_UNREACHABLE,
+			ICMPv6_TYPE_TIME_EXCEEDED,
+			ICMPv6_TYPE_PRIVATE_EXPERIMENTATION_100,
+			ICMPv6_TYPE_PRIVATE_EXPERIMENTATION_101,
+			ICMPv6_TYPE_RESERVED_FOR_EXPANSION_OF_ICMPV6_ERROR_MESSAGES:
+
+			passive.ICMPv6Error = ParsedICMPv6Error(ipv6.Data)
+		case ICMPv6_TYPE_PACKET_TOO_BIG:
+			passive.ICMPv6PacketTooBig = ParsedICMPv6PacketTooBig(ipv6.Data)
+		case ICMPv6_TYPE_PARAMETER_PROBLEM:
+			passive.ICMPv6ParameterProblem = ParsedICMPv6ParameterProblem(ipv6.Data)
+		case
+			ICMPv6_TYPE_ECHO_REQUEST,
+			ICMPv6_TYPE_ECHO_REPLY,
+			ICMPv6_TYPE_PRIVATE_EXPERIMENTATION_200,
+			ICMPv6_TYPE_PRIVATE_EXPERIMENTATION_201:
+
+			passive.ICMPv6Echo = ParsedICMPv6Echo(ipv6.Data)
+		case ICMPv6_TYPE_NEIGHBOR_SOLICITATION:
+			passive.ICMPv6NeighborSolicitation = ParsedICMPv6NeighborSolicitation(ipv6.Data)
+		case ICMPv6_TYPE_NEIGHBOR_ADVERTISEMENT:
+			passive.ICMPv6NeighborAdvertisement = ParsedICMPv6NeighborAdvertisement(ipv6.Data)
+		case ICMPv6_TYPE_ROUTER_SOLICITATION:
+			passive.ICMPv6RouterSolicitation = ParsedICMPv6RouterSolicitation(ipv6.Data)
+		case ICMPv6_TYPE_ROUTER_ADVERTISEMENT:
+			passive.ICMPv6RouterAdvertisement = ParsedICMPv6RouterAdvertisement(ipv6.Data)
+		case ICMPv6_TYPE_REDIRECT:
+			passive.ICMPv6Redirect = ParsedICMPv6Redirect(ipv6.Data)
+		case
+			ICMPv6_TYPE_MULTICAST_LISTENER_QUERY,
+			ICMPv6_TYPE_MULTICAST_LISTENER_REPORT,
+			ICMPv6_TYPE_MULTICAST_LISTENER_DONE,
+			ICMPv6_TYPE_MLDv2_MULTICAST_LISTENER_REPORT:
+
+			passive.ICMPv6MulticastListenerDiscovery = ParsedICMPv6MulticastListenerDiscovery(ipv6.Data)
+		}
+	}
+}
+
+// parsedPassiveTCPLayer は TCP と、well-known port から判定できる上位層（HTTP/TLS）を
+// パースして passive へ書き足す。IPv4/IPv6 の両方から使う。
+func parsedPassiveTCPLayer(passive *Passive, payload []byte, shouldParseFull bool) {
+	tcp := ParsedTCP(payload)
+	passive.TCP = tcp
+
+	if !shouldParseFull {
+		return
+	}
+
+	switch tcp.DstPort {
+	case PORT_HTTP:
+		if tcp.Flags == TCP_FLAGS_PSH_ACK {
+			if http := ParsedHTTPRequest(tcp.Data); http != nil {
+				passive.HTTP = http
+			}
+		}
+		return
+	case PORT_HTTPS, DEBUG_10443:
+		ParsedTLSToPassive(tcp, passive)
+		return
+	}
+
+	switch tcp.SrcPort {
+	case PORT_HTTP:
+		if tcp.Flags == TCP_FLAGS_FIN_PSH_ACK || tcp.Flags == TCP_FLAGS_PSH_ACK {
+			if httpRes := ParsedHTTPResponse(tcp.Data); httpRes != nil {
+				passive.HTTPRes = httpRes
+			}
+		}
+		return
+	case PORT_HTTPS, DEBUG_10443:
+		ParsedTLSToPassive(tcp, passive)
+		return
+	}
+}
+
+// parsedPassiveUDPLayer は UDP と、well-known port から判定できる上位層（DNS）を
+// パースして passive へ書き足す。IPv4/IPv6 の両方から使う。
+func parsedPassiveUDPLayer(passive *Passive, payload []byte, shouldParseFull bool) {
+	udp := ParsedUDP(payload)
+	passive.UDP = udp
+
+	if !shouldParseFull {
+		return
+	}
+
+	// DNS以外は一旦udpまでのみviewする
+	if udp.DstPort != PORT_DNS && udp.SrcPort != PORT_DNS {
+		return
+	}
+
+	// TODO: 53確かtcpもあったからそれのハンドリング考慮するいつか
+	flags := binary.BigEndian.Uint16(udp.Data[2:4])
+	if udp.DstPort == PORT_DNS && IsDNSRequest(flags) {
+		passive.DNS = ParsedDNSRequest(udp.Data)
+		return
+	}
+	if udp.SrcPort == PORT_DNS && IsDNSResponse(flags) {
+		passive.DNS = ParsedDNSResponse(udp.Data)
 	}
 }

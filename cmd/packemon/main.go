@@ -67,6 +67,14 @@ func main() {
 				Name:  "limit",
 				Usage: "Limits the list of packets that can be displayed on monitor mode. Default is '1000'; if less than -1 is specified, no limit. (default 1000)",
 			},
+			&cli.BoolFlag{
+				Name:  "prepend",
+				Usage: "Display the newest rows at the top.",
+			},
+			&cli.BoolFlag{
+				Name:  "parse-full",
+				Usage: "Enable full parsing (L5+) for packets using well-known ports. (Experimental)",
+			},
 		},
 		Before: notExistArgs,
 		Action: actionMonitor,
@@ -160,19 +168,13 @@ func actionGenerator(ctx context.Context, c *cli.Command) error {
 	}
 
 	if ebpfObjs != nil {
-		qdisc, err := tc.AddClsactQdisc(nwInterface)
-		if err != nil {
-			// error出力するが、処理は進める
-			fmt.Fprintln(os.Stderr, err)
-		}
-
 		// Generator で TCP 3way handshake する際に、カーネルが自動で RST パケットを送っており、それをドロップするため
-		filterEgress, err := tc.PrepareDropingRSTPacket(nwInterface, ebpfObjs)
+		linkEgress, err := tc.PrepareDropingRSTPacket(nwInterface, ebpfObjs)
 		if err != nil {
 			// error出力するが、処理は進める
 			fmt.Fprintln(os.Stderr, err)
 		}
-		filterIngress, err := tc.PrepareAnalyzingIngressPackets(nwInterface, ebpfObjs)
+		linkIngress, err := tc.PrepareAnalyzingIngressPackets(nwInterface, ebpfObjs)
 		if err != nil {
 			// error出力するが、処理は進める
 			fmt.Fprintln(os.Stderr, err)
@@ -180,7 +182,7 @@ func actionGenerator(ctx context.Context, c *cli.Command) error {
 		ingressMap = ebpfObjs.PktIngressCount
 		egressMap = ebpfObjs.PktEgressCount
 		defer func() {
-			if err := tc.Close(ebpfObjs, qdisc, filterEgress, filterIngress); err != nil {
+			if err := tc.Close(ebpfObjs, linkEgress, linkIngress); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
 		}()
@@ -245,6 +247,9 @@ func actionMonitor(ctx context.Context, c *cli.Command) error {
 		limit = c.Int("limit")
 	}
 
+	prepend := c.Bool("prepend")
+	shouldParseFull := c.Bool("parse-full")
+
 	nwInterface := DEFAULT_TARGET_NW_INTERFACE
 	if c.String("interface") != "" {
 		nwInterface = c.String("interface")
@@ -258,7 +263,7 @@ func actionMonitor(ctx context.Context, c *cli.Command) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	packemonTUI := monitor.New(netIf, columns, limit)
+	packemonTUI := monitor.New(netIf, columns, limit, prepend, shouldParseFull)
 	return packemonTUI.Run(ctx)
 }
 
@@ -365,7 +370,7 @@ func actionDebugging(ctx context.Context, c *cli.Command) error {
 	}
 
 	// Monitor の debug は本チャンの networkinterface.go 使うようにする
-	go netIf.Recieve(ctx)
+	go netIf.Recieve(ctx, true)
 	return debugPrint(ctx, netIf.PassiveCh)
 }
 
@@ -391,8 +396,8 @@ func debugMode(wantSend bool, protocol string, netIf *packemon.NetworkInterface,
 		switch protocol {
 		case "arp":
 			return debugNetIf.SendARPrequest()
-		case "icmp":
-			return debugNetIf.SendICMPechoRequest(dstMacAddr)
+		case "icmpv4":
+			return debugNetIf.SendICMPv4echoRequest(dstMacAddr)
 		case "tcp":
 			return debugNetIf.SendTCPsyn(dstMacAddr)
 		case "dns":
